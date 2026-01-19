@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>100均魔改造アーカイブ - 会員専用</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { background: #121212; color: #e0e0e0; font-family: sans-serif; padding: 20px; }
+        .container { max-width: 600px; margin: auto; }
+        h1 { color: #00ff88; text-align: center; border-bottom: 2px solid #00ff88; }
+        .auth-box, .post-form { background: #1e1e1e; padding: 20px; border-radius: 10px; margin-bottom: 20px; border: 1px solid #333; }
+        input, textarea { width: 100%; margin: 8px 0; padding: 12px; background: #2a2a2a; border: 1px solid #444; color: white; border-radius: 5px; box-sizing: border-box; }
+        button { padding: 10px 15px; background: #00ff88; border: none; font-weight: bold; cursor: pointer; border-radius: 5px; margin-right: 5px; }
+        .btn-delete { background: #ff4444; color: white; margin-top: 10px; font-size: 0.8rem; }
+        .card { background: #1e1e1e; padding: 15px; margin-top: 15px; border-radius: 8px; border-left: 5px solid #00ff88; }
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🛠 100均魔改造アーカイブ</h1>
+
+    <div id="auth-section" class="auth-box">
+        <h3>ログイン / 会員登録</h3>
+        <p style="font-size: 0.8rem;">※新規登録後はメールのURLを必ずクリックしてください</p>
+        <input type="email" id="email" placeholder="メールアドレス">
+        <input type="password" id="password" placeholder="パスワード">
+        <button onclick="signUp()">新規登録</button>
+        <button onclick="signIn()">ログイン</button>
+    </div>
+
+    <div id="post-section" class="post-form hidden">
+        <div id="user-info" style="font-size: 0.8rem; color: #aaa; margin-bottom: 10px;"></div>
+        <input type="text" id="t" placeholder="改造のタイトル">
+        <textarea id="c" rows="3" placeholder="改造の内容や使った材料"></textarea>
+        <button onclick="send()">世界に公開する</button>
+        <button onclick="signOut()" style="background:#555;">ログアウト</button>
+    </div>
+
+    <div id="list">読み込み中...</div>
+</div>
+
+<script>
+    // --- 【エラー対策済み】URLとKEYの設定 ---
+    // 文字列を分解して結合することで、目に見えない記号が入るのを防ぎます
+    const protocol = "https://";
+    const projectID = "xkcoybhgybehcplrnjpy";
+    const domain = ".supabase.co";
+    const FINAL_URL = (protocol + projectID + domain).trim();
+    
+    const FINAL_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhrY295YmhneWJlaGNwbHJuanB5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg4MTk5MzEsImV4cCI6MjA4NDM5NTkzMX0.KAukWRsZcdjiC8rEITmPRRdJ6nj-s7pMDdpcBOBPNek'.trim();
+
+    // 接続（Malformedエラーを回避する一番安全な方法）
+    const client = supabase.createClient(FINAL_URL, FINAL_KEY);
+
+    let currentUser = null;
+
+    // ログイン状態監視
+    client.auth.onAuthStateChange((event, session) => {
+        currentUser = session?.user || null;
+        if (currentUser) {
+            document.getElementById('auth-section').classList.add('hidden');
+            document.getElementById('post-section').classList.remove('hidden');
+            document.getElementById('user-info').innerText = `ログイン中: ${currentUser.email}`;
+        } else {
+            document.getElementById('auth-section').classList.remove('hidden');
+            document.getElementById('post-section').classList.add('hidden');
+        }
+        load();
+    });
+
+    async function signUp() {
+        const e = document.getElementById('email').value;
+        const p = document.getElementById('password').value;
+        const { error } = await client.auth.signUp({ email: e, password: p });
+        if (error) alert("エラー: " + error.message);
+        else alert("確認メールを送りました！メールのリンクをクリックしてください。");
+    }
+
+    async function signIn() {
+        const e = document.getElementById('email').value;
+        const p = document.getElementById('password').value;
+        const { error } = await client.auth.signInWithPassword({ email: e, password: p });
+        if (error) alert("失敗: " + error.message);
+    }
+
+    async function signOut() {
+        await client.auth.signOut();
+        alert("ログアウトしました");
+    }
+
+    async function send() {
+        const t = document.getElementById('t');
+        const c = document.getElementById('c');
+        if(!t.value || !c.value) return alert("入力してね");
+        const { error } = await client.from('posts').insert([{ title: t.value, content: c.value, user_id: currentUser.id }]);
+        if (error) alert("投稿失敗: " + error.message);
+        else { t.value = ''; c.value = ''; load(); }
+    }
+
+    async function load() {
+        const { data, error } = await client.from('posts').select('*').order('created_at', { ascending: false });
+        if (error) return;
+        let h = '';
+        data.forEach(p => {
+            const isMyPost = currentUser && p.user_id === currentUser.id;
+            h += `<div class="card"><h3>${p.title}</h3><p>${p.content}</p>${isMyPost ? `<button class="btn-delete" onclick="deletePost('${p.id}')">削除する</button>` : ''}</div>`;
+        });
+        document.getElementById('list').innerHTML = h || "投稿がありません。";
+    }
+
+    async function deletePost(id) {
+        if (!confirm("消しますか？")) return;
+        const { error } = await client.from('posts').delete().eq('id', id);
+        if (error) alert("失敗: " + error.message);
+        else load();
+    }
+
+    load();
+</script>
+</body>
+</html>
