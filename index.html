@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>100HACK-SHARE</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 fill=%22%23ff5a5f%22/><text y=%2250%%22 x=%2250%%22 font-family=%22sans-serif%22 font-size=%2250%22 font-weight=%22bold%22 fill=%22white%22 text-anchor=%22middle%22 dominant-baseline=%22central%22>100</text></svg>">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root { --bg: #f7f9fa; --accent: #ff5a5f; --text: #1c1e21; --sub: #65676b; --border: #dddfe2; --white: #ffffff; --danger: #e0245e; --success: #28a745; }
+        body { background: var(--bg); color: var(--text); font-family: -apple-system, sans-serif; margin: 0; padding-top: 85px; }
+        
+        /* ヘッダー */
+        header { position: fixed; top: 0; left: 0; right: 0; height: 75px; background: var(--white); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 20px; z-index: 1000; box-shadow: 0 1px 3px rgba(0,0,0,0.1); gap: 15px; }
+        .logo { font-weight: 800; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; gap: 5px; }
+        /* アイコンロゴ：赤四角に100 */
+        .logo-icon { width: 32px; height: 32px; background: var(--accent); color: white; display: flex; align-items: center; justify-content: center; border-radius: 4px; font-size: 14px; font-weight: 900; }
+        .search-container { flex-grow: 1; display: flex; justify-content: center; max-width: 500px; }
+        .search-bar { width: 100%; padding: 10px 20px; border-radius: 25px; border: 1px solid var(--border); background: #f0f2f5; outline: none; }
+        
+        .user-nav { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 5px 12px; border-radius: 30px; }
+        .user-icon { width: 36px; height: 36px; border-radius: 50%; background: #ccc; overflow: hidden; position: relative; border: 1px solid var(--border); }
+        .user-icon img { width: 100%; height: 100%; object-fit: cover; position: absolute; }
+
+        /* カード一覧 */
+        main { max-width: 1200px; margin: 0 auto; padding: 20px; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 25px; }
+        .post-card { background: var(--white); border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06); cursor: pointer; }
+        .card-img { width: 100%; height: 200px; object-fit: cover; }
+        .card-body { padding: 15px; }
+        
+        /* モーダル */
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 3000; display: none; align-items: center; justify-content: center; backdrop-filter: blur(4px); padding: 20px; }
+        .modal.active { display: flex; }
+        .modal-inner { background: #fff; padding: 25px; border-radius: 20px; width: 100%; max-width: 450px; max-height: 90vh; overflow-y: auto; }
+        input, textarea { width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 15px; box-sizing: border-box; font-size: 1rem; }
+        .btn-primary { background: var(--accent); color: #fff; border: none; padding: 14px; border-radius: 8px; font-weight: bold; cursor: pointer; width: 100%; }
+        
+        /* 詳細・編集 */
+        #detail-view { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: white; z-index: 2000; display: none; overflow-y: auto; padding-top: 80px; }
+        .btn-edit { background: #eee; border: none; padding: 8px 15px; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        .comment-item { border-bottom: 1px solid #eee; padding: 15px 0; }
+        .fab { position: fixed; bottom: 30px; right: 30px; width: 60px; height: 60px; border-radius: 50%; background: var(--accent); color: white; border: none; font-size: 35px; cursor: pointer; box-shadow: 0 4px 15px rgba(0,0,0,0.2); z-index: 1500; }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="logo" onclick="location.reload()">
+        <div class="logo-icon">100</div>
+        HACK-SHARE
+    </div>
+    <div class="search-container">
+        <input type="text" id="searchInput" class="search-bar" placeholder="ハックを検索..." oninput="filterPosts()">
+    </div>
+    <div id="header-user">
+        <button id="login-open" style="padding: 8px 16px; border:none; background:none; cursor:pointer;" onclick="toggleModal('auth-modal')">ログイン</button>
+        <div id="user-nav" class="user-nav hidden" onclick="toggleModal('profile-modal')">
+            <span id="nav-username" style="font-weight:600;"></span>
+            <div id="nav-icon" class="user-icon">👤</div>
+        </div>
+    </div>
+</header>
+
+<main id="post-list"></main>
+<button class="fab" onclick="handleFabClick()">+</button>
+
+<div id="post-modal" class="modal"><div class="modal-inner">
+    <h2 id="modal-title">新規ハックを投稿</h2>
+    <input type="text" id="post-title" placeholder="タイトル">
+    <textarea id="post-content" rows="4" placeholder="説明や材料など"></textarea>
+    <div id="post-file-area">
+        <label>写真を選択</label>
+        <input type="file" id="post-file" accept="image/*">
+    </div>
+    <button id="post-btn" class="btn-primary" onclick="submitPost()">保存する</button>
+    <button onclick="toggleModal('post-modal')" style="width:100%; border:none; background:none; margin-top:10px; color:gray; cursor:pointer;">キャンセル</button>
+</div></div>
+
+<div id="profile-modal" class="modal"><div class="modal-inner">
+    <h2>プロフィール編集</h2>
+    <input type="text" id="prof-name" placeholder="名前">
+    <input type="file" id="prof-file" accept="image/*">
+    <button class="btn-primary" onclick="updateProfile()">保存</button>
+    <button onclick="signOut()" style="width:100%; margin-top:10px; color:var(--danger); border:none; background:none; cursor:pointer;">ログアウト</button>
+</div></div>
+
+<div id="auth-modal" class="modal"><div class="modal-inner">
+    <h2>ログイン</h2>
+    <input type="email" id="email" placeholder="メール">
+    <input type="password" id="pw" placeholder="パスワード">
+    <button class="btn-primary" onclick="handleAuth()">実行</button>
+</div></div>
+
+<div id="detail-view">
+    <div style="max-width: 800px; margin: 0 auto; padding: 20px;">
+        <button onclick="closeDetail()" style="margin-bottom:20px; padding:10px 20px; border-radius:30px; border:1px solid #ddd; background:white; cursor:pointer; font-weight:bold;">← 戻る</button>
+        <div id="detail-content"></div>
+        <div id="detail-actions" style="margin-top:20px; display:flex; gap:10px;"></div>
+        <hr style="margin:30px 0; border:none; border-top:1px solid #eee;">
+        <h3>コメント</h3>
+        <div id="comment-list"></div>
+        <div id="comment-form" class="hidden" style="margin-top:20px;">
+            <textarea id="comment-input" rows="3" placeholder="コメントを書く..."></textarea>
+            <button class="btn-primary" onclick="submitComment()">送信</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const PROJECT_URL = "https://xkcoybhgybehcplrnjpy.supabase.co";
+    const client = supabase.createClient(PROJECT_URL, 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhrY295YmhneWJlaGNwbHJuanB5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg4MTk5MzEsImV4cCI6MjA4NDM5NTkzMX0.KAukWRsZcdjiC8rEITmPRRdJ6nj-s7pMDdpcBOBPNek');
+
+    let currentUser = null, allPosts = [], currentPostId = null, editingPostId = null;
+
+    client.auth.onAuthStateChange((_, session) => {
+        currentUser = session?.user || null;
+        document.getElementById('login-open').classList.toggle('hidden', !!currentUser);
+        document.getElementById('user-nav').classList.toggle('hidden', !currentUser);
+        document.getElementById('comment-form').classList.toggle('hidden', !currentUser);
+        if (currentUser) syncProfile();
+        fetchPosts();
+    });
+
+    async function fetchPosts() {
+        const { data: posts } = await client.from('posts').select('*').order('created_at', {ascending: false});
+        allPosts = posts || [];
+        renderPosts(allPosts);
+    }
+
+    async function renderPosts(posts) {
+        const list = document.getElementById('post-list');
+        const cards = await Promise.all(posts.map(async (p, idx) => {
+            const { data: prof } = await client.from('profiles').select('username, avatar_url').eq('id', p.user_id).maybeSingle();
+            return `<div class="post-card" onclick="showDetail(${idx})">
+                <img src="${p.image_url}" class="card-img">
+                <div class="card-body"><b>${p.title}</b><div style="font-size:0.8rem; margin-top:10px; display:flex; align-items:center; gap:5px;">
+                    <div class="user-icon" style="width:20px; height:20px;">${prof?.avatar_url ? `<img src="${prof.avatar_url}">` : '👤'}</div>
+                    ${prof?.username || '匿名'}
+                </div></div>
+            </div>`;
+        }));
+        list.innerHTML = cards.join('');
+    }
+
+    async function showDetail(idx) {
+        const p = allPosts[idx]; currentPostId = p.id;
+        const { data: prof } = await client.from('profiles').select('username, avatar_url').eq('id', p.user_id).maybeSingle();
+        const isOwner = currentUser && p.user_id === currentUser.id;
+
+        document.getElementById('detail-content').innerHTML = `
+            <img src="${p.image_url}" style="width:100%; border-radius:15px; margin-bottom:20px;">
+            <h1>${p.title}</h1>
+            <p style="white-space:pre-wrap; line-height:1.6;">${p.content || ''}</p>
+        `;
+
+        document.getElementById('detail-actions').innerHTML = isOwner ? `
+            <button class="btn-edit" onclick="openEdit(${idx})">✏️ 編集する</button>
+            <button onclick="deletePost(${p.id}, '${p.image_url}')" style="color:var(--danger); border:none; background:none; cursor:pointer;">削除</button>
+        ` : '';
+
+        fetchComments(p.id);
+        document.getElementById('detail-view').style.display = 'block';
+        document.body.style.overflow = 'hidden';
+    }
+
+    // 編集モードを開く
+    function openEdit(idx) {
+        const p = allPosts[idx];
+        editingPostId = p.id;
+        document.getElementById('modal-title').innerText = "投稿を編集";
+        document.getElementById('post-title').value = p.title;
+        document.getElementById('post-content').value = p.content;
+        document.getElementById('post-file-area').classList.add('hidden'); // 編集時は画像変更なし（シンプル化）
+        closeDetail();
+        toggleModal('post-modal');
+    }
+
+    async function submitPost() {
+        const title = document.getElementById('post-title').value;
+        const content = document.getElementById('post-content').value;
+        const btn = document.getElementById('post-btn');
+        btn.innerText = "保存中..."; btn.disabled = true;
+
+        if (editingPostId) {
+            // 編集実行
+            await client.from('posts').update({ title, content }).eq('id', editingPostId);
+        } else {
+            // 新規投稿
+            const file = document.getElementById('post-file').files[0];
+            if (!title || !file) return alert("画像とタイトルは必須です");
+            const path = `posts/${Date.now()}.jpg`;
+            await client.storage.from('photos').upload(path, file);
+            const url = `${PROJECT_URL}/storage/v1/object/public/photos/${path}`;
+            await client.from('posts').insert([{ title, content, image_url: url, user_id: currentUser.id }]);
+        }
+        location.reload();
+    }
+
+    // 補助関数
+    async function syncProfile() {
+        const { data: prof } = await client.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
+        if (prof) {
+            document.getElementById('nav-username').innerText = prof.username || "名無し";
+            if (prof.avatar_url) document.getElementById('nav-icon').innerHTML = `<img src="${prof.avatar_url}?t=${Date.now()}">`;
+        }
+    }
+    async function fetchComments(postId) {
+        const { data: cms } = await client.from('comments').select('*, profiles(username, avatar_url)').eq('post_id', postId).order('created_at', {ascending: true});
+        document.getElementById('comment-list').innerHTML = (cms || []).map(c => `
+            <div class="comment-item"><b>${c.profiles?.username || '匿名'}</b>: ${c.content}</div>
+        `).join('') || '<p>コメントなし</p>';
+    }
+    async function submitComment() {
+        const input = document.getElementById('comment-input');
+        await client.from('comments').insert([{ post_id: currentPostId, user_id: currentUser.id, content: input.value }]);
+        input.value = ''; fetchComments(currentPostId);
+    }
+    async function updateProfile() {
+        const name = document.getElementById('prof-name').value, file = document.getElementById('prof-file').files[0];
+        let url = undefined;
+        if (file) {
+            const path = `avatars/${currentUser.id.substring(0,8)}.jpg`;
+            await client.storage.from('photos').upload(path, file, { upsert: true });
+            url = `${PROJECT_URL}/storage/v1/object/public/photos/${path}`;
+        }
+        await client.from('profiles').upsert({ id: currentUser.id, username: name, avatar_url: url });
+        location.reload();
+    }
+    async function deletePost(id, url) {
+        if (!confirm("削除しますか？")) return;
+        const path = url.split('/photos/')[1];
+        await client.storage.from('photos').remove([path]);
+        await client.from('posts').delete().eq('id', id);
+        location.reload();
+    }
+    function toggleModal(id) { document.getElementById(id).classList.toggle('active'); }
+    function closeDetail() { document.getElementById('detail-view').style.display = 'none'; document.body.style.overflow = 'auto'; }
+    function handleFabClick() { 
+        editingPostId = null;
+        document.getElementById('modal-title').innerText = "新規ハックを投稿";
+        document.getElementById('post-title').value = "";
+        document.getElementById('post-content').value = "";
+        document.getElementById('post-file-area').classList.remove('hidden');
+        currentUser ? toggleModal('post-modal') : toggleModal('auth-modal'); 
+    }
+    function filterPosts() {
+        const q = document.getElementById('searchInput').value.toLowerCase();
+        renderPosts(allPosts.filter(p => p.title.toLowerCase().includes(q)));
+    }
+    async function handleAuth() {
+        const e = document.getElementById('email').value, p = document.getElementById('pw').value;
+        const { error } = await client.auth.signInWithPassword({ email: e, password: p });
+        if (error) await client.auth.signUp({ email: e, password: p });
+        location.reload();
+    }
+    function signOut() { client.auth.signOut().then(() => location.reload()); }
+</script>
+</body>
+</html>
